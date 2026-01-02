@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eleven-am/auto-consensus/gossip"
+	"github.com/eleven-am/auto-consensus/internal/gossip"
 )
 
 var portCounter atomic.Int32

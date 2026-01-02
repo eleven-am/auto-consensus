@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/eleven-am/auto-consensus/gossip"
+	"github.com/eleven-am/auto-consensus/internal/gossip"
 )
 
 const DefaultDiscoveryTimeout = 5 * time.Second

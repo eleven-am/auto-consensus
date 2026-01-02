@@ -50,11 +50,11 @@ func TestMDNSDiscoverer_CustomConfig(t *testing.T) {
 
 func TestMDNSDiscoverer_ParseEntry(t *testing.T) {
 	tests := []struct {
-		name          string
-		clusterID     string
-		entry         *mdns.ServiceEntry
-		wantPeer      PeerInfo
-		wantValid     bool
+		name      string
+		clusterID string
+		entry     *mdns.ServiceEntry
+		wantPeer  PeerInfo
+		wantValid bool
 	}{
 		{
 			name:      "valid entry with gossip field",

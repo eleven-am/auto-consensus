@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eleven-am/auto-consensus/bootstrap"
-	"github.com/eleven-am/auto-consensus/discovery"
-	"github.com/eleven-am/auto-consensus/gossip"
+	"github.com/eleven-am/auto-consensus/internal/bootstrap"
+	"github.com/eleven-am/auto-consensus/internal/discovery"
+	"github.com/eleven-am/auto-consensus/internal/gossip"
 )
 
 var (

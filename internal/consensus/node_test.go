@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eleven-am/auto-consensus/bootstrap"
-	"github.com/eleven-am/auto-consensus/gossip"
+	"github.com/eleven-am/auto-consensus/internal/bootstrap"
+	"github.com/eleven-am/auto-consensus/internal/gossip"
 )
 
 var portCounter atomic.Int32
@@ -40,14 +40,14 @@ func (m *mockDiscoverer) SetPeers(peers []string) {
 }
 
 type testCallbacks struct {
-	mu             sync.Mutex
-	bootstrapped   bool
-	joined         bool
-	joinedPeers    []NodeInfo
-	peersJoined    []NodeInfo
-	peersLeft      []NodeInfo
-	bootstrapCh    chan struct{}
-	joinCh         chan struct{}
+	mu           sync.Mutex
+	bootstrapped bool
+	joined       bool
+	joinedPeers  []NodeInfo
+	peersJoined  []NodeInfo
+	peersLeft    []NodeInfo
+	bootstrapCh  chan struct{}
+	joinCh       chan struct{}
 }
 
 func newTestCallbacks() *testCallbacks {

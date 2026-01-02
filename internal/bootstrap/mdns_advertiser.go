@@ -6,21 +6,21 @@ import (
 	"os"
 	"sync"
 
-	"github.com/eleven-am/auto-consensus/discovery"
+	"github.com/eleven-am/auto-consensus/internal/discovery"
 	"github.com/hashicorp/mdns"
 )
 
 type MDNSAdvertiser struct {
-	nodeID        string
-	service       string
-	domain        string
-	port          int
-	clusterID     string
-	gossipAddr    string
-	server        *mdns.Server
-	mu            sync.RWMutex
-	started       bool
-	bootstrapped  bool
+	nodeID       string
+	service      string
+	domain       string
+	port         int
+	clusterID    string
+	gossipAddr   string
+	server       *mdns.Server
+	mu           sync.RWMutex
+	started      bool
+	bootstrapped bool
 }
 
 type MDNSAdvertiserConfig struct {

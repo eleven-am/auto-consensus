@@ -1,7 +1,7 @@
 package consensus
 
 type NodeInfo struct {
-	ID      string
+	ID       string
 	RaftAddr string
 }
 
@@ -14,10 +14,10 @@ type RaftCallbacks interface {
 
 type noopCallbacks struct{}
 
-func (noopCallbacks) OnBootstrap(NodeInfo) error              { return nil }
-func (noopCallbacks) OnJoin(NodeInfo, []NodeInfo) error       { return nil }
-func (noopCallbacks) OnPeerJoin(NodeInfo)                     {}
-func (noopCallbacks) OnPeerLeave(NodeInfo)                    {}
+func (noopCallbacks) OnBootstrap(NodeInfo) error        { return nil }
+func (noopCallbacks) OnJoin(NodeInfo, []NodeInfo) error { return nil }
+func (noopCallbacks) OnPeerJoin(NodeInfo)               {}
+func (noopCallbacks) OnPeerLeave(NodeInfo)              {}
 
 func NoopCallbacks() RaftCallbacks {
 	return noopCallbacks{}

@@ -3,7 +3,7 @@ package bootstrap
 import (
 	"testing"
 
-	"github.com/eleven-am/auto-consensus/discovery"
+	"github.com/eleven-am/auto-consensus/internal/discovery"
 )
 
 func TestMDNSAdvertiser_DefaultConfig(t *testing.T) {
