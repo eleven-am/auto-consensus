@@ -7,6 +7,7 @@ import (
 )
 
 func (n *Node) startReconciliationLoop() {
+	n.logger.Info("starting reconciliation loop", "interval", n.config.ReconcileInterval)
 	ticker := time.NewTicker(n.config.ReconcileInterval)
 	defer ticker.Stop()
 
@@ -39,9 +40,11 @@ func (n *Node) reconcileMembers() {
 		return
 	}
 
+	members := g.Members()
+
 	configFuture := ra.GetConfiguration()
 	if err := configFuture.Error(); err != nil {
-		n.logger.Debug("failed to get raft config for reconciliation", "error", err)
+		n.logger.Warn("reconciliation: failed to get raft config", "error", err)
 		return
 	}
 
@@ -50,27 +53,16 @@ func (n *Node) reconcileMembers() {
 		raftMembers[string(server.ID)] = true
 	}
 
-	for _, member := range g.Members() {
-		if member.ID == selfID {
+	gossipMembers := make(map[string]bool)
+
+	for _, member := range members {
+		gossipMembers[member.ID] = true
+
+		if member.ID == selfID || !member.Bootstrapped || member.RaftAddr == "" || raftMembers[member.ID] {
 			continue
 		}
 
-		if !member.Bootstrapped {
-			continue
-		}
-
-		if member.RaftAddr == "" {
-			continue
-		}
-
-		if raftMembers[member.ID] {
-			continue
-		}
-
-		n.logger.Info("reconciliation: adding missing peer",
-			"peer", member.ID,
-			"addr", member.RaftAddr,
-		)
+		n.logger.Info("reconciliation: adding peer", "peer", member.ID, "addr", member.RaftAddr)
 
 		f := ra.AddVoter(
 			raft.ServerID(member.ID),
@@ -80,12 +72,23 @@ func (n *Node) reconcileMembers() {
 		)
 
 		if err := f.Error(); err != nil {
-			n.logger.Warn("reconciliation: failed to add peer",
-				"peer", member.ID,
-				"error", err,
-			)
-		} else {
-			n.logger.Info("reconciliation: peer added", "peer", member.ID)
+			n.logger.Warn("reconciliation: failed to add peer", "peer", member.ID, "error", err)
+		}
+	}
+
+	for _, server := range configFuture.Configuration().Servers {
+		serverID := string(server.ID)
+
+		if serverID == selfID || gossipMembers[serverID] {
+			continue
+		}
+
+		n.logger.Info("reconciliation: removing stale peer", "peer", serverID)
+
+		f := ra.RemoveServer(server.ID, 0, defaultOperationTimeout)
+
+		if err := f.Error(); err != nil {
+			n.logger.Warn("reconciliation: failed to remove peer", "peer", serverID, "error", err)
 		}
 	}
 }

@@ -3,11 +3,11 @@ package gossip
 import (
 	"crypto/sha256"
 	"fmt"
-	"log/slog"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/eleven-am/auto-consensus/internal/logging"
 	"github.com/hashicorp/memberlist"
 )
 
@@ -164,7 +164,7 @@ func (g *Gossip) buildMemberlistConfig() *memberlist.Config {
 
 	if g.config.Logger != nil {
 		mlConfig.Logger = nil
-		mlConfig.LogOutput = &slogAdapter{logger: g.config.Logger}
+		mlConfig.LogOutput = logging.NewHashiCorpAdapter(g.config.Logger)
 	}
 
 	host, portStr, err := net.SplitHostPort(g.config.BindAddr)
@@ -173,6 +173,26 @@ func (g *Gossip) buildMemberlistConfig() *memberlist.Config {
 		var port int
 		fmt.Sscanf(portStr, "%d", &port)
 		mlConfig.BindPort = port
+	}
+
+	if g.config.AdvertiseAddr != "" {
+		advHost, advPortStr, err := net.SplitHostPort(g.config.AdvertiseAddr)
+		if err == nil {
+			resolvedIP := g.resolveAdvertiseAddr(advHost)
+			if resolvedIP != "" {
+				mlConfig.AdvertiseAddr = resolvedIP
+				var advPort int
+				fmt.Sscanf(advPortStr, "%d", &advPort)
+				mlConfig.AdvertisePort = advPort
+				if g.config.Logger != nil {
+					g.config.Logger.Info("memberlist advertise address configured",
+						"advertiseAddr", resolvedIP,
+						"advertisePort", advPort,
+						"originalHost", advHost,
+					)
+				}
+			}
+		}
 	}
 
 	if len(g.config.SecretKey) > 0 {
@@ -186,16 +206,37 @@ func (g *Gossip) buildMemberlistConfig() *memberlist.Config {
 	return mlConfig
 }
 
+func (g *Gossip) resolveAdvertiseAddr(host string) string {
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return host
+	}
+
+	addrs, err := net.LookupIP(host)
+	if err != nil {
+		if g.config.Logger != nil {
+			g.config.Logger.Warn("failed to resolve advertise address, using hostname",
+				"host", host,
+				"error", err,
+			)
+		}
+		return host
+	}
+
+	for _, addr := range addrs {
+		if ipv4 := addr.To4(); ipv4 != nil {
+			return ipv4.String()
+		}
+	}
+
+	if len(addrs) > 0 {
+		return addrs[0].String()
+	}
+
+	return host
+}
+
 func deriveEncryptionKey(secret []byte) []byte {
 	hash := sha256.Sum256(secret)
 	return hash[:]
-}
-
-type slogAdapter struct {
-	logger *slog.Logger
-}
-
-func (s *slogAdapter) Write(p []byte) (n int, err error) {
-	s.logger.Debug(string(p))
-	return len(p), nil
 }

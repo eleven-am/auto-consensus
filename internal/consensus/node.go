@@ -158,6 +158,10 @@ func (n *Node) Gossip() *gossip.Gossip {
 	return n.bootstrapper.Gossip()
 }
 
+func (n *Node) Subscribe() <-chan bootstrap.StateChange {
+	return n.bootstrapper.Subscribe()
+}
+
 func (n *Node) OnJoin(node gossip.NodeInfo) {
 	if node.ID == n.localInfo.ID {
 		return
@@ -178,4 +182,12 @@ func (n *Node) OnLeave(node gossip.NodeInfo) {
 	})
 }
 
-func (n *Node) OnUpdate(gossip.NodeInfo) {}
+func (n *Node) OnUpdate(node gossip.NodeInfo) {
+	if node.ID == n.localInfo.ID {
+		return
+	}
+	n.config.Callbacks.OnPeerJoin(NodeInfo{
+		ID:       node.ID,
+		RaftAddr: node.RaftAddr,
+	})
+}

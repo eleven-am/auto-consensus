@@ -2,6 +2,7 @@ package autoconsensus
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/eleven-am/auto-consensus/internal/bootstrap"
@@ -18,61 +19,50 @@ type Node struct {
 	config        Config
 }
 
-func New(cfg Config, factory StorageFactory, fsm raft.FSM, disc Discoverer) (*Node, error) {
+func New(cfg Config) (*Node, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
-	}
-	if factory == nil {
-		return nil, ErrMissingFactory
-	}
-	if fsm == nil {
-		return nil, ErrMissingFSM
 	}
 
 	cfg.setDefaults()
 
-	internalFactory := &storageFactoryAdapter{factory: factory}
+	internalFactory := &storageFactoryAdapter{factory: cfg.StorageFactory}
 
 	raftNode, err := appraft.New(
 		appraft.Config{
 			NodeID:        cfg.NodeID,
-			BindAddr:      cfg.RaftAddr,
-			AdvertiseAddr: cfg.RaftAdvertiseAddr,
+			BindAddr:      cfg.raftAddr(),
+			AdvertiseAddr: cfg.raftAdvertiseAddr(),
 			Logger:        cfg.Logger,
 		},
 		internalFactory,
-		fsm,
+		cfg.FSM,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	var networkMode gossip.NetworkMode
-	switch cfg.NetworkMode {
-	case WAN:
-		networkMode = gossip.WAN
-	default:
-		networkMode = gossip.LAN
+	var disc discovery.Discoverer
+	if cfg.Discoverer != nil {
+		disc = &discovererAdapter{disc: cfg.Discoverer}
 	}
-
-	internalDisc := &discovererAdapter{disc: disc}
 
 	consensusCfg := &consensus.Config{
 		Bootstrap: &bootstrap.Config{
 			NodeID:              cfg.NodeID,
-			GossipAddr:          cfg.GossipAddr,
-			GossipAdvertiseAddr: cfg.GossipAdvertiseAddr,
-			RaftAdvertiseAddr:   cfg.RaftAdvertiseAddr,
+			GossipAddr:          cfg.gossipAddr(),
+			GossipAdvertiseAddr: cfg.gossipAdvertiseAddr(),
+			RaftAdvertiseAddr:   cfg.raftAdvertiseAddr(),
 			SecretKey:           cfg.SecretKey,
-			NetworkMode:         networkMode,
-			CanBootstrap:        cfg.CanBootstrap,
-			DiscoveryTimeout:    cfg.DiscoveryTimeout,
+			NetworkMode:         gossip.LAN,
+			CanBootstrap:        true,
+			DiscoveryTimeout:    3 * time.Second,
 			Logger:              cfg.Logger,
 		},
 		Callbacks: raftNode.Callbacks(),
 	}
 
-	consensusNode, err := consensus.New(consensusCfg, internalDisc)
+	consensusNode, err := consensus.New(consensusCfg, disc)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +109,48 @@ func (n *Node) RaftState() string {
 
 func (n *Node) Raft() *raft.Raft {
 	return n.raftNode.Raft()
+}
+
+func (n *Node) WaitForReady(ctx context.Context) error {
+	state := n.State()
+	if state == StateRunning {
+		return nil
+	}
+	if state == StateFailed {
+		return errors.New("node failed to start")
+	}
+
+	ch := n.consensusNode.Subscribe()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case change := <-ch:
+			if change.New == StateRunning {
+				return nil
+			}
+			if change.New == StateFailed {
+				return errors.New("node failed to start")
+			}
+		}
+	}
+}
+
+func (n *Node) Subscribe() <-chan StateChange {
+	internal := n.consensusNode.Subscribe()
+	out := make(chan StateChange, 16)
+
+	go func() {
+		for change := range internal {
+			out <- StateChange{
+				Old: change.Old,
+				New: change.New,
+			}
+		}
+		close(out)
+	}()
+
+	return out
 }
 
 type storageFactoryAdapter struct {

@@ -9,11 +9,21 @@ var (
 	ErrAlreadyStarted  = errors.New("gossip already started")
 )
 
+type NodeState int
+
+const (
+	NodeStateAlive NodeState = iota
+	NodeStateSuspect
+	NodeStateDead
+	NodeStateLeft
+)
+
 type NodeInfo struct {
 	ID           string
 	Address      string
 	RaftAddr     string
 	Bootstrapped bool
+	State        NodeState
 }
 
 type EventHandler interface {

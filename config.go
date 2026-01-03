@@ -1,62 +1,69 @@
 package autoconsensus
 
 import (
+	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/hashicorp/raft"
 )
 
-type NetworkMode int
-
-const (
-	LAN NetworkMode = iota
-	WAN
-)
-
 type Config struct {
-	NodeID              string
-	GossipAddr          string
-	GossipAdvertiseAddr string
-	RaftAddr            string
-	RaftAdvertiseAddr   string
-	SecretKey           []byte
-	NetworkMode         NetworkMode
-	CanBootstrap        bool
-	DiscoveryTimeout    time.Duration
-	ReconcileInterval   time.Duration
-	Logger              *slog.Logger
+	NodeID         string
+	GossipPort     int
+	RaftPort       int
+	SecretKey      []byte
+	StorageFactory StorageFactory
+	FSM            raft.FSM
+	Discoverer     Discoverer
+	AdvertiseAddr  string
+	Logger         *slog.Logger
 }
 
 func (c *Config) validate() error {
 	if c.NodeID == "" {
 		return ErrMissingNodeID
 	}
-	if c.GossipAddr == "" {
-		return ErrMissingBindAddr
+	if c.GossipPort == 0 {
+		return fmt.Errorf("gossip port is required")
 	}
-	if c.RaftAddr == "" {
-		return ErrMissingBindAddr
+	if c.RaftPort == 0 {
+		return fmt.Errorf("raft port is required")
+	}
+	if c.StorageFactory == nil {
+		return ErrMissingFactory
+	}
+	if c.FSM == nil {
+		return ErrMissingFSM
 	}
 	return nil
 }
 
 func (c *Config) setDefaults() {
-	if c.GossipAdvertiseAddr == "" {
-		c.GossipAdvertiseAddr = c.GossipAddr
-	}
-	if c.RaftAdvertiseAddr == "" {
-		c.RaftAdvertiseAddr = c.RaftAddr
-	}
-	if c.DiscoveryTimeout == 0 {
-		c.DiscoveryTimeout = 3 * time.Second
-	}
-	if c.ReconcileInterval == 0 {
-		c.ReconcileInterval = 10 * time.Second
-	}
 	if c.Logger == nil {
 		c.Logger = slog.Default()
 	}
+}
+
+func (c *Config) gossipAddr() string {
+	return fmt.Sprintf("0.0.0.0:%d", c.GossipPort)
+}
+
+func (c *Config) raftAddr() string {
+	return fmt.Sprintf("0.0.0.0:%d", c.RaftPort)
+}
+
+func (c *Config) gossipAdvertiseAddr() string {
+	if c.AdvertiseAddr != "" {
+		return fmt.Sprintf("%s:%d", c.AdvertiseAddr, c.GossipPort)
+	}
+	return c.gossipAddr()
+}
+
+func (c *Config) raftAdvertiseAddr() string {
+	if c.AdvertiseAddr != "" {
+		return fmt.Sprintf("%s:%d", c.AdvertiseAddr, c.RaftPort)
+	}
+	return c.raftAddr()
 }
 
 type Storages struct {

@@ -26,6 +26,11 @@ const (
 	jitterFactor   = 0.5
 )
 
+type StateChange struct {
+	Old State
+	New State
+}
+
 type Bootstrapper struct {
 	config         *Config
 	state          State
@@ -36,6 +41,8 @@ type Bootstrapper struct {
 	mu             sync.RWMutex
 	stopCh         chan struct{}
 	stoppedCh      chan struct{}
+	subscribers    []chan StateChange
+	subMu          sync.RWMutex
 }
 
 func New(cfg *Config, disc discovery.Discoverer) (*Bootstrapper, error) {
@@ -399,9 +406,37 @@ func (b *Bootstrapper) nextBackoff(current time.Duration) time.Duration {
 
 func (b *Bootstrapper) transitionTo(state State) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	old := b.state
 	b.state = state
+	b.mu.Unlock()
+
 	b.log("state -> %s", state)
+
+	if old != state {
+		b.broadcast(StateChange{Old: old, New: state})
+	}
+}
+
+func (b *Bootstrapper) broadcast(change StateChange) {
+	b.subMu.RLock()
+	defer b.subMu.RUnlock()
+
+	for _, ch := range b.subscribers {
+		select {
+		case ch <- change:
+		default:
+		}
+	}
+}
+
+func (b *Bootstrapper) Subscribe() <-chan StateChange {
+	ch := make(chan StateChange, 16)
+
+	b.subMu.Lock()
+	b.subscribers = append(b.subscribers, ch)
+	b.subMu.Unlock()
+
+	return ch
 }
 
 func (b *Bootstrapper) setBootstrapped(bootstrapped bool) {

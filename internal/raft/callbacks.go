@@ -13,7 +13,7 @@ func (n *Node) OnBootstrap(self consensus.NodeInfo) error {
 	defer n.mu.Unlock()
 
 	n.selfInfo = self
-	n.logger.Info("bootstrapping new cluster", "node", self.ID, "addr", self.RaftAddr)
+	n.logger.Info("bootstrapping cluster", "node", self.ID)
 
 	if err := n.startRaft(self); err != nil {
 		return err
@@ -29,7 +29,6 @@ func (n *Node) OnBootstrap(self consensus.NodeInfo) error {
 	}
 
 	if hasState {
-		n.logger.Info("existing state found, skipping bootstrap")
 		go n.startReconciliationLoop()
 		return nil
 	}
@@ -49,7 +48,6 @@ func (n *Node) OnBootstrap(self consensus.NodeInfo) error {
 	}
 
 	n.logger.Info("cluster bootstrapped", "node", self.ID)
-
 	go n.startReconciliationLoop()
 
 	return nil
@@ -60,41 +58,29 @@ func (n *Node) OnJoin(self consensus.NodeInfo, peers []consensus.NodeInfo) error
 	n.selfInfo = self
 	n.mu.Unlock()
 
-	n.logger.Info("joining existing cluster", "node", self.ID, "peers", len(peers))
+	n.logger.Info("joining cluster", "node", self.ID, "peers", len(peers))
 
 	if err := n.startRaftLocked(self); err != nil {
 		return err
 	}
 
-	hasState, err := raft.HasExistingState(
+	hasState, _ := raft.HasExistingState(
 		n.storages.LogStore,
 		n.storages.StableStore,
 		n.storages.SnapshotStore,
 	)
-	if err != nil {
-		n.logger.Warn("error checking existing state", "error", err)
-	}
 
 	didReset := false
 	if hasState {
-		n.logger.Info("found persisted raft state, verifying cluster membership")
-
-		accepted, err := n.waitForAcceptance()
-		if err != nil {
-			n.logger.Warn("error during acceptance check", "error", err)
-		}
-
+		accepted, _ := n.waitForAcceptance()
 		if !accepted {
-			n.logger.Warn("not accepted by cluster after retries, resetting storage and rejoining")
-
+			n.logger.Warn("not accepted by cluster, resetting storage")
 			if err := n.resetAndRestart(self); err != nil {
 				return fmt.Errorf("failed to reset and restart: %w", err)
 			}
 			didReset = true
 		}
 	}
-
-	n.logger.Info("raft started, waiting for leader to add us", "node", self.ID)
 
 	if !didReset {
 		go n.startReconciliationLoop()
@@ -109,30 +95,15 @@ func (n *Node) OnPeerJoin(peer consensus.NodeInfo) {
 	selfID := n.selfInfo.ID
 	n.mu.RUnlock()
 
-	if raftNode == nil {
-		n.logger.Debug("ignoring peer join, raft not started yet", "peer", peer.ID)
+	if raftNode == nil || raftNode.State() != raft.Leader || peer.ID == selfID {
 		return
 	}
 
-	if raftNode.State() != raft.Leader {
+	if peer.RaftAddr == "" || !n.isPeerBootstrapped(peer.ID) {
 		return
 	}
 
-	if peer.ID == selfID {
-		return
-	}
-
-	if peer.RaftAddr == "" {
-		n.logger.Warn("peer has no raft address", "peer", peer.ID)
-		return
-	}
-
-	if !n.isPeerBootstrapped(peer.ID) {
-		n.logger.Debug("peer not yet bootstrapped, skipping add", "peer", peer.ID)
-		return
-	}
-
-	n.logger.Info("adding peer as voter", "peer", peer.ID, "addr", peer.RaftAddr)
+	n.logger.Info("adding peer", "peer", peer.ID)
 
 	f := raftNode.AddVoter(
 		raft.ServerID(peer.ID),
@@ -142,9 +113,7 @@ func (n *Node) OnPeerJoin(peer consensus.NodeInfo) {
 	)
 
 	if err := f.Error(); err != nil {
-		n.logger.Error("failed to add voter", "peer", peer.ID, "error", err)
-	} else {
-		n.logger.Info("peer added as voter", "peer", peer.ID)
+		n.logger.Warn("failed to add peer", "peer", peer.ID, "error", err)
 	}
 }
 
@@ -154,16 +123,7 @@ func (n *Node) OnPeerLeave(peer consensus.NodeInfo) {
 	selfID := n.selfInfo.ID
 	n.mu.RUnlock()
 
-	if raftNode == nil {
-		return
-	}
-
-	if raftNode.State() != raft.Leader {
-		return
-	}
-
-	if peer.ID == selfID {
-		n.logger.Debug("ignoring self removal", "peer", peer.ID)
+	if raftNode == nil || raftNode.State() != raft.Leader || peer.ID == selfID {
 		return
 	}
 
@@ -210,7 +170,6 @@ func (n *Node) resetAndRestart(self consensus.NodeInfo) error {
 	defer n.mu.Unlock()
 
 	if n.raft != nil {
-		n.logger.Info("shutting down raft before reset")
 		f := n.raft.Shutdown()
 		if err := f.Error(); err != nil {
 			n.logger.Warn("error during raft shutdown", "error", err)
@@ -227,11 +186,9 @@ func (n *Node) resetAndRestart(self consensus.NodeInfo) error {
 
 	oldStopCh := n.stopCh
 	n.stopCh = make(chan struct{})
-
 	close(oldStopCh)
 
 	jitter := hashBasedJitter(self.ID)
-	n.logger.Info("waiting before reset", "jitter", jitter)
 
 	n.mu.Unlock()
 	select {
@@ -241,8 +198,6 @@ func (n *Node) resetAndRestart(self consensus.NodeInfo) error {
 	case <-timeAfter(jitter):
 	}
 	n.mu.Lock()
-
-	n.logger.Info("resetting storage")
 
 	if err := n.storageFactory.Reset(); err != nil {
 		return fmt.Errorf("failed to reset storage: %w", err)

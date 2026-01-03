@@ -10,6 +10,7 @@ import (
 
 	"github.com/eleven-am/auto-consensus/internal/consensus"
 	"github.com/eleven-am/auto-consensus/internal/gossip"
+	"github.com/eleven-am/auto-consensus/internal/logging"
 	"github.com/hashicorp/raft"
 )
 
@@ -156,7 +157,7 @@ func (n *Node) startRaft(self consensus.NodeInfo) error {
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(self.ID)
 	config.Logger = nil
-	config.LogOutput = &slogWriter{n.logger}
+	config.LogOutput = logging.NewHashiCorpAdapter(n.logger)
 
 	bindAddr := n.config.BindAddr
 	if self.RaftAddr != "" {
@@ -197,13 +198,4 @@ func (n *Node) startRaft(self consensus.NodeInfo) error {
 	n.running = true
 	n.started = true
 	return nil
-}
-
-type slogWriter struct {
-	logger *slog.Logger
-}
-
-func (w *slogWriter) Write(p []byte) (n int, err error) {
-	w.logger.Debug(string(p))
-	return len(p), nil
 }

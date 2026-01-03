@@ -93,10 +93,25 @@ func nodeToInfo(node *memberlist.Node) NodeInfo {
 		}
 	}
 
+	var state NodeState
+	switch node.State {
+	case memberlist.StateAlive:
+		state = NodeStateAlive
+	case memberlist.StateSuspect:
+		state = NodeStateSuspect
+	case memberlist.StateDead:
+		state = NodeStateDead
+	case memberlist.StateLeft:
+		state = NodeStateLeft
+	default:
+		state = NodeStateAlive
+	}
+
 	return NodeInfo{
 		ID:           node.Name,
 		Address:      address,
 		RaftAddr:     raftAddr,
 		Bootstrapped: bootstrapped,
+		State:        state,
 	}
 }

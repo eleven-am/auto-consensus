@@ -20,15 +20,12 @@ func (n *Node) waitForAcceptance() (bool, error) {
 
 		accepted, err := n.checkAcceptance()
 		if err != nil {
-			n.logger.Debug("acceptance check attempt failed", "attempt", attempt+1, "error", err)
 			continue
 		}
 
 		if accepted {
 			return true, nil
 		}
-
-		n.logger.Debug("not yet accepted, will retry", "attempt", attempt+1)
 	}
 
 	return false, nil
@@ -71,15 +68,10 @@ func (n *Node) checkAcceptance() (bool, error) {
 
 		for _, server := range configFuture.Configuration().Servers {
 			if string(server.ID) == self.ID {
-				n.logger.Info("confirmed membership in cluster config")
 				return true, nil
 			}
 		}
 
-		n.logger.Debug("leader exists but we're not in config",
-			"leader", leaderID,
-			"self", self.ID,
-		)
 		return false, nil
 	}
 

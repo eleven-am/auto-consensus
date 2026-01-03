@@ -4,6 +4,11 @@ import "github.com/eleven-am/auto-consensus/internal/bootstrap"
 
 type State = bootstrap.State
 
+type StateChange struct {
+	Old State
+	New State
+}
+
 const (
 	StateInit             = bootstrap.StateInit
 	StateMDNSAdvertiserUp = bootstrap.StateMDNSAdvertiserUp
