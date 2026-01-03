@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -105,7 +106,7 @@ func New(cfg Config) (*Node, error) {
 		if b, ok := resp.([]byte); ok {
 			return b, nil
 		}
-		return nil, nil
+		return json.Marshal(resp)
 	})
 
 	grpcServer.SetLeaderAddrFunc(func() string {
