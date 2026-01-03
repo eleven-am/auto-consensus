@@ -107,6 +107,7 @@ func (n *Node) waitForBootstrap(ctx context.Context) {
 func (n *Node) onBootstrapComplete() {
 	if n.bootstrapper.DidBootstrap() {
 		n.config.Callbacks.OnBootstrap(n.localInfo)
+		n.updateLocalInfoFromGossip()
 		return
 	}
 
@@ -128,6 +129,23 @@ func (n *Node) onBootstrapComplete() {
 	}
 
 	n.config.Callbacks.OnJoin(n.localInfo, peers)
+	n.updateLocalInfoFromGossip()
+}
+
+func (n *Node) updateLocalInfoFromGossip() {
+	g := n.bootstrapper.Gossip()
+	if g == nil {
+		return
+	}
+
+	for _, m := range g.Members() {
+		if m.ID == n.localInfo.ID {
+			n.mu.Lock()
+			n.localInfo.RaftAddr = m.RaftAddr
+			n.mu.Unlock()
+			return
+		}
+	}
 }
 
 func (n *Node) Stop() error {

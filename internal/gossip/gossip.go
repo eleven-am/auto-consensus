@@ -165,6 +165,19 @@ func (g *Gossip) SetGRPCAddr(addr string) {
 	}
 }
 
+func (g *Gossip) SetRaftAddr(addr string) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.delegate != nil {
+		g.delegate.SetRaftAddr(addr)
+	}
+
+	if g.list != nil {
+		g.list.UpdateNode(time.Second)
+	}
+}
+
 func (g *Gossip) SetAppMetadata(meta []byte) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()

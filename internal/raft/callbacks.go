@@ -33,11 +33,13 @@ func (n *Node) OnBootstrap(self consensus.NodeInfo) error {
 		return nil
 	}
 
+	actualRaftAddr := string(n.transport.LocalAddr())
+
 	cfg := raft.Configuration{
 		Servers: []raft.Server{
 			{
 				ID:      raft.ServerID(self.ID),
-				Address: raft.ServerAddress(self.RaftAddr),
+				Address: raft.ServerAddress(actualRaftAddr),
 			},
 		},
 	}

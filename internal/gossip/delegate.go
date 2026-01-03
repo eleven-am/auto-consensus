@@ -38,6 +38,12 @@ func (d *delegate) SetGRPCAddr(addr string) {
 	d.grpcAddr = addr
 }
 
+func (d *delegate) SetRaftAddr(addr string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.raftAddr = addr
+}
+
 func (d *delegate) SetAppMeta(meta []byte) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -60,7 +66,10 @@ func (d *delegate) NodeMeta(limit int) []byte {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	meta := d.advertiseAddr + "|raft=" + d.raftAddr
+	meta := d.advertiseAddr
+	if d.raftAddr != "" {
+		meta += "|raft=" + d.raftAddr
+	}
 	if d.grpcAddr != "" {
 		meta += "|grpc=" + d.grpcAddr
 	}

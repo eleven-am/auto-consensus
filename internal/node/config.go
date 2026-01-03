@@ -28,9 +28,6 @@ func (c *Config) validate() error {
 	if c.GossipPort == 0 {
 		return fmt.Errorf("gossip port is required")
 	}
-	if c.RaftPort == 0 {
-		return fmt.Errorf("raft port is required")
-	}
 	if c.StorageFactory == nil {
 		return ErrMissingFactory
 	}

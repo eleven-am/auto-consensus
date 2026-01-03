@@ -17,9 +17,6 @@ spec:
       port: 7946
       targetPort: 7946
       protocol: UDP
-    - name: raft
-      port: 8300
-      targetPort: 8300
     - name: http
       port: 8080
       targetPort: 8080
@@ -49,8 +46,6 @@ spec:
             - containerPort: 7946
               name: gossip-u
               protocol: UDP
-            - containerPort: 8300
-              name: raft
             - containerPort: 8080
               name: http
           env:
@@ -60,8 +55,6 @@ spec:
                   fieldPath: metadata.name
             - name: GOSSIP_PORT
               value: "7946"
-            - name: RAFT_PORT
-              value: "8300"
             - name: HTTP_ADDR
               value: ":8080"
             - name: SECRET_KEY

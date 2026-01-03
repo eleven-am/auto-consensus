@@ -14,6 +14,6 @@ RUN apk --no-cache add ca-certificates
 
 COPY --from=builder /testnode /testnode
 
-EXPOSE 5353/udp 7946 8080 8300
+EXPOSE 5353/udp 7946 8080
 
 ENTRYPOINT ["/testnode"]

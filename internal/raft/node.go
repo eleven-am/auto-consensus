@@ -153,6 +153,16 @@ func (n *Node) Shutdown() error {
 	return shutdownErr
 }
 
+func allocateDynamicPort(addr *net.TCPAddr) (int, error) {
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	return port, nil
+}
+
 func (n *Node) startRaft(self consensus.NodeInfo) error {
 	config := raft.DefaultConfig()
 	config.LocalID = raft.ServerID(self.ID)
@@ -169,9 +179,20 @@ func (n *Node) startRaft(self consensus.NodeInfo) error {
 		return fmt.Errorf("resolve addr: %w", err)
 	}
 
+	if addr.Port == 0 {
+		actualPort, err := allocateDynamicPort(addr)
+		if err != nil {
+			return fmt.Errorf("allocate dynamic port: %w", err)
+		}
+		addr.Port = actualPort
+	}
+
 	advertiseAddr := n.config.AdvertiseAddr
-	if self.RaftAddr != "" {
-		advertiseAddr = self.RaftAddr
+	if advertiseAddr != "" {
+		host, _, _ := net.SplitHostPort(advertiseAddr)
+		advertiseAddr = net.JoinHostPort(host, fmt.Sprintf("%d", addr.Port))
+	} else {
+		advertiseAddr = addr.String()
 	}
 
 	trans, err := raft.NewTCPTransport(advertiseAddr, addr, 3, 10*time.Second, os.Stderr)
@@ -197,5 +218,19 @@ func (n *Node) startRaft(self consensus.NodeInfo) error {
 	n.raft = ra
 	n.running = true
 	n.started = true
+
+	if n.gossipFn != nil {
+		if g := n.gossipFn(); g != nil {
+			localAddr := string(n.transport.LocalAddr())
+			actualAddr := localAddr
+			if n.config.AdvertiseAddr != "" {
+				_, port, _ := net.SplitHostPort(localAddr)
+				host, _, _ := net.SplitHostPort(n.config.AdvertiseAddr)
+				actualAddr = net.JoinHostPort(host, port)
+			}
+			g.SetRaftAddr(actualAddr)
+		}
+	}
+
 	return nil
 }
