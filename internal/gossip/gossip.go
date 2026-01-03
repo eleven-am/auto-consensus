@@ -50,6 +50,12 @@ func (g *Gossip) Start() error {
 	g.list = list
 	g.started = true
 
+	broadcasts := &memberlist.TransmitLimitedQueue{
+		NumNodes: func() int { return list.NumMembers() },
+		RetransmitMult: 3,
+	}
+	g.delegate.SetBroadcastQueue(broadcasts)
+
 	return nil
 }
 
@@ -143,6 +149,50 @@ func (g *Gossip) SetBootstrapped(bootstrapped bool) {
 
 	if g.list != nil {
 		g.list.UpdateNode(time.Second)
+	}
+}
+
+func (g *Gossip) SetGRPCAddr(addr string) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.delegate != nil {
+		g.delegate.SetGRPCAddr(addr)
+	}
+
+	if g.list != nil {
+		g.list.UpdateNode(time.Second)
+	}
+}
+
+func (g *Gossip) SetAppMetadata(meta []byte) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.delegate != nil {
+		g.delegate.SetAppMeta(meta)
+	}
+
+	if g.list != nil {
+		g.list.UpdateNode(time.Second)
+	}
+}
+
+func (g *Gossip) Broadcast(msg []byte) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.delegate != nil && g.list != nil {
+		g.delegate.QueueBroadcast(g.config.NodeID, msg)
+	}
+}
+
+func (g *Gossip) OnAppMessage(fn func(from string, msg []byte)) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.delegate != nil {
+		g.delegate.SetOnAppMessage(fn)
 	}
 }
 

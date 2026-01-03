@@ -1,0 +1,19 @@
+syntax = "proto3";
+package consensus;
+option go_package = "github.com/eleven-am/auto-consensus/internal/grpc/proto";
+
+service Consensus {
+  rpc ForwardCommand(ForwardRequest) returns (ForwardResponse);
+}
+
+message ForwardRequest {
+  bytes command = 1;
+  int64 timeout_ms = 2;
+}
+
+message ForwardResponse {
+  bool success = 1;
+  bytes result = 2;
+  string error = 3;
+  string leader_addr = 4;
+}

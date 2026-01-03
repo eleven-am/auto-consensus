@@ -22,8 +22,10 @@ type NodeInfo struct {
 	ID           string
 	Address      string
 	RaftAddr     string
+	GRPCAddr     string
 	Bootstrapped bool
 	State        NodeState
+	AppMeta      []byte
 }
 
 type EventHandler interface {

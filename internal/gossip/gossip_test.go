@@ -2,6 +2,7 @@ package gossip
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -430,5 +431,330 @@ func (h *testEventHandler) OnLeave(node NodeInfo) {
 func (h *testEventHandler) OnUpdate(node NodeInfo) {
 	if h.onUpdate != nil {
 		h.onUpdate(node)
+	}
+}
+
+func TestGossip_AppMetadata(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	port1 := getFreePort(26000)
+	port2 := getFreePort(27000)
+
+	g1, err := New(&Config{
+		NodeID:        "node1",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port1),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port1),
+		Mode:          LAN,
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to create gossip1: %v", err)
+	}
+
+	appMeta := []byte(`{"role":"leader","capacity":100}`)
+	g1.SetAppMetadata(appMeta)
+
+	if err := g1.Start(); err != nil {
+		t.Fatalf("failed to start gossip1: %v", err)
+	}
+	defer g1.Stop()
+
+	handler := &testEventHandler{
+		onJoin: func(node NodeInfo) {},
+	}
+
+	g2, err := New(&Config{
+		NodeID:        "node2",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port2),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port2),
+		Mode:          LAN,
+	}, handler)
+	if err != nil {
+		t.Fatalf("failed to create gossip2: %v", err)
+	}
+
+	if err := g2.Start(); err != nil {
+		t.Fatalf("failed to start gossip2: %v", err)
+	}
+	defer g2.Stop()
+
+	_, err = g2.Join([]string{fmt.Sprintf("127.0.0.1:%d", port1)})
+	if err != nil {
+		t.Fatalf("failed to join: %v", err)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	members := g2.Members()
+	var node1Info NodeInfo
+	for _, m := range members {
+		if m.ID == "node1" {
+			node1Info = m
+			break
+		}
+	}
+
+	if string(node1Info.AppMeta) != string(appMeta) {
+		t.Errorf("expected app meta '%s', got '%s'", appMeta, node1Info.AppMeta)
+	}
+}
+
+func TestGossip_AppMetadataUpdate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	port1 := getFreePort(28000)
+	port2 := getFreePort(29000)
+
+	g1, err := New(&Config{
+		NodeID:        "node1",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port1),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port1),
+		Mode:          LAN,
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to create gossip1: %v", err)
+	}
+
+	if err := g1.Start(); err != nil {
+		t.Fatalf("failed to start gossip1: %v", err)
+	}
+	defer g1.Stop()
+
+	g2, err := New(&Config{
+		NodeID:        "node2",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port2),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port2),
+		Mode:          LAN,
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to create gossip2: %v", err)
+	}
+
+	if err := g2.Start(); err != nil {
+		t.Fatalf("failed to start gossip2: %v", err)
+	}
+	defer g2.Stop()
+
+	_, err = g2.Join([]string{fmt.Sprintf("127.0.0.1:%d", port1)})
+	if err != nil {
+		t.Fatalf("failed to join: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	newMeta := []byte(`{"status":"ready"}`)
+	g1.SetAppMetadata(newMeta)
+
+	time.Sleep(500 * time.Millisecond)
+
+	members := g2.Members()
+	var node1Info NodeInfo
+	for _, m := range members {
+		if m.ID == "node1" {
+			node1Info = m
+			break
+		}
+	}
+
+	if string(node1Info.AppMeta) != string(newMeta) {
+		t.Errorf("expected updated app meta '%s', got '%s'", newMeta, node1Info.AppMeta)
+	}
+}
+
+func TestGossip_Broadcast(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	port1 := getFreePort(30000)
+	port2 := getFreePort(31000)
+
+	g1, err := New(&Config{
+		NodeID:        "node1",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port1),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port1),
+		Mode:          LAN,
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to create gossip1: %v", err)
+	}
+
+	if err := g1.Start(); err != nil {
+		t.Fatalf("failed to start gossip1: %v", err)
+	}
+	defer g1.Stop()
+
+	var receivedMsg []byte
+	var receivedFrom string
+	msgReceived := make(chan struct{})
+	var msgMu sync.Mutex
+
+	g2, err := New(&Config{
+		NodeID:        "node2",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port2),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port2),
+		Mode:          LAN,
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to create gossip2: %v", err)
+	}
+
+	g2.OnAppMessage(func(from string, msg []byte) {
+		msgMu.Lock()
+		receivedFrom = from
+		receivedMsg = msg
+		msgMu.Unlock()
+		select {
+		case msgReceived <- struct{}{}:
+		default:
+		}
+	})
+
+	if err := g2.Start(); err != nil {
+		t.Fatalf("failed to start gossip2: %v", err)
+	}
+	defer g2.Stop()
+
+	_, err = g2.Join([]string{fmt.Sprintf("127.0.0.1:%d", port1)})
+	if err != nil {
+		t.Fatalf("failed to join: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	testMsg := []byte("cache-invalidate:users")
+	g1.Broadcast(testMsg)
+
+	select {
+	case <-msgReceived:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for broadcast message")
+	}
+
+	msgMu.Lock()
+	defer msgMu.Unlock()
+
+	if receivedFrom != "node1" {
+		t.Errorf("expected from 'node1', got '%s'", receivedFrom)
+	}
+
+	if string(receivedMsg) != string(testMsg) {
+		t.Errorf("expected message '%s', got '%s'", testMsg, receivedMsg)
+	}
+}
+
+func TestGossip_BroadcastMultipleNodes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	port1 := getFreePort(32000)
+	port2 := getFreePort(33000)
+	port3 := getFreePort(34000)
+
+	g1, err := New(&Config{
+		NodeID:        "node1",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port1),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port1),
+		Mode:          LAN,
+	}, nil)
+	if err != nil {
+		t.Fatalf("failed to create gossip1: %v", err)
+	}
+
+	if err := g1.Start(); err != nil {
+		t.Fatalf("failed to start gossip1: %v", err)
+	}
+	defer g1.Stop()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	var received2, received3 bool
+	var mu sync.Mutex
+
+	g2, _ := New(&Config{
+		NodeID:        "node2",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port2),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port2),
+		Mode:          LAN,
+	}, nil)
+	g2.OnAppMessage(func(from string, msg []byte) {
+		mu.Lock()
+		if !received2 {
+			received2 = true
+			wg.Done()
+		}
+		mu.Unlock()
+	})
+	g2.Start()
+	defer g2.Stop()
+
+	g3, _ := New(&Config{
+		NodeID:        "node3",
+		BindAddr:      fmt.Sprintf("127.0.0.1:%d", port3),
+		AdvertiseAddr: fmt.Sprintf("127.0.0.1:%d", port3),
+		Mode:          LAN,
+	}, nil)
+	g3.OnAppMessage(func(from string, msg []byte) {
+		mu.Lock()
+		if !received3 {
+			received3 = true
+			wg.Done()
+		}
+		mu.Unlock()
+	})
+	g3.Start()
+	defer g3.Stop()
+
+	g2.Join([]string{fmt.Sprintf("127.0.0.1:%d", port1)})
+	g3.Join([]string{fmt.Sprintf("127.0.0.1:%d", port1)})
+
+	time.Sleep(300 * time.Millisecond)
+
+	g1.Broadcast([]byte("broadcast-to-all"))
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Error("timeout waiting for all nodes to receive broadcast")
+	}
+
+	mu.Lock()
+	if !received2 {
+		t.Error("node2 did not receive broadcast")
+	}
+	if !received3 {
+		t.Error("node3 did not receive broadcast")
+	}
+	mu.Unlock()
+}
+
+func TestDelegate_AppMetaIsolation(t *testing.T) {
+	d := newDelegate("10.0.0.1:7946", "10.0.0.1:8300")
+
+	d.SetAppMeta([]byte(`|raft=evil|grpc=hacker`))
+
+	meta := string(d.NodeMeta(512))
+
+	if !strings.Contains(meta, "app=") {
+		t.Error("expected base64-encoded app meta in node meta")
+	}
+
+	if strings.Contains(meta, "|raft=evil") {
+		t.Error("app meta injection should not work - raft field should be protected")
+	}
+
+	if strings.Count(meta, "|raft=") != 1 {
+		t.Error("should only have one raft field")
 	}
 }

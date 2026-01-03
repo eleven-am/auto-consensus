@@ -29,6 +29,8 @@ type Node struct {
 	running      bool
 	localInfo    NodeInfo
 	stopCh       chan struct{}
+	appOnJoin    func(gossip.NodeInfo)
+	appOnLeave   func(gossip.NodeInfo)
 }
 
 func New(cfg *Config, disc discovery.Discoverer) (*Node, error) {
@@ -162,6 +164,18 @@ func (n *Node) Subscribe() <-chan bootstrap.StateChange {
 	return n.bootstrapper.Subscribe()
 }
 
+func (n *Node) SetAppOnJoin(fn func(gossip.NodeInfo)) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.appOnJoin = fn
+}
+
+func (n *Node) SetAppOnLeave(fn func(gossip.NodeInfo)) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.appOnLeave = fn
+}
+
 func (n *Node) OnJoin(node gossip.NodeInfo) {
 	if node.ID == n.localInfo.ID {
 		return
@@ -170,6 +184,12 @@ func (n *Node) OnJoin(node gossip.NodeInfo) {
 		ID:       node.ID,
 		RaftAddr: node.RaftAddr,
 	})
+	n.mu.RLock()
+	fn := n.appOnJoin
+	n.mu.RUnlock()
+	if fn != nil {
+		fn(node)
+	}
 }
 
 func (n *Node) OnLeave(node gossip.NodeInfo) {
@@ -180,6 +200,12 @@ func (n *Node) OnLeave(node gossip.NodeInfo) {
 		ID:       node.ID,
 		RaftAddr: node.RaftAddr,
 	})
+	n.mu.RLock()
+	fn := n.appOnLeave
+	n.mu.RUnlock()
+	if fn != nil {
+		fn(node)
+	}
 }
 
 func (n *Node) OnUpdate(node gossip.NodeInfo) {

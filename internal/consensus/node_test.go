@@ -415,3 +415,180 @@ func TestNode_StopBeforeStart(t *testing.T) {
 		t.Errorf("expected ErrNotRunning, got %v", err)
 	}
 }
+
+func TestNode_AppOnJoinCallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	gossipPort1 := getFreePort()
+	raftAddr1 := fmt.Sprintf("127.0.0.1:%d", getFreePort())
+
+	gossipPort2 := getFreePort()
+	raftAddr2 := fmt.Sprintf("127.0.0.1:%d", getFreePort())
+
+	callbacks1 := newTestCallbacks()
+	cfg1 := &Config{
+		Bootstrap: &bootstrap.Config{
+			NodeID:            "node1",
+			GossipAddr:        fmt.Sprintf("127.0.0.1:%d", gossipPort1),
+			RaftAdvertiseAddr: raftAddr1,
+			CanBootstrap:      true,
+			DiscoveryTimeout:  500 * time.Millisecond,
+			NetworkMode:       gossip.LAN,
+		},
+		Callbacks: callbacks1,
+	}
+
+	disc1 := &mockDiscoverer{}
+	node1, err := New(cfg1, disc1)
+	if err != nil {
+		t.Fatalf("failed to create node1: %v", err)
+	}
+
+	appJoinReceived := make(chan gossip.NodeInfo, 1)
+	node1.SetAppOnJoin(func(info gossip.NodeInfo) {
+		select {
+		case appJoinReceived <- info:
+		default:
+		}
+	})
+
+	ctx := context.Background()
+	if err := node1.Start(ctx); err != nil {
+		t.Fatalf("failed to start node1: %v", err)
+	}
+	defer node1.Stop()
+
+	select {
+	case <-callbacks1.bootstrapCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for node1 bootstrap")
+	}
+
+	callbacks2 := newTestCallbacks()
+	cfg2 := &Config{
+		Bootstrap: &bootstrap.Config{
+			NodeID:            "node2",
+			GossipAddr:        fmt.Sprintf("127.0.0.1:%d", gossipPort2),
+			RaftAdvertiseAddr: raftAddr2,
+			CanBootstrap:      false,
+			DiscoveryTimeout:  500 * time.Millisecond,
+			NetworkMode:       gossip.LAN,
+		},
+		Callbacks: callbacks2,
+	}
+
+	disc2 := &mockDiscoverer{peers: []string{fmt.Sprintf("127.0.0.1:%d", gossipPort1)}}
+	node2, err := New(cfg2, disc2)
+	if err != nil {
+		t.Fatalf("failed to create node2: %v", err)
+	}
+
+	if err := node2.Start(ctx); err != nil {
+		t.Fatalf("failed to start node2: %v", err)
+	}
+	defer node2.Stop()
+
+	select {
+	case info := <-appJoinReceived:
+		if info.ID != "node2" {
+			t.Errorf("expected node ID 'node2', got '%s'", info.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for app OnJoin callback")
+	}
+}
+
+func TestNode_AppOnLeaveCallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+
+	gossipPort1 := getFreePort()
+	raftAddr1 := fmt.Sprintf("127.0.0.1:%d", getFreePort())
+
+	gossipPort2 := getFreePort()
+	raftAddr2 := fmt.Sprintf("127.0.0.1:%d", getFreePort())
+
+	callbacks1 := newTestCallbacks()
+	cfg1 := &Config{
+		Bootstrap: &bootstrap.Config{
+			NodeID:            "node1",
+			GossipAddr:        fmt.Sprintf("127.0.0.1:%d", gossipPort1),
+			RaftAdvertiseAddr: raftAddr1,
+			CanBootstrap:      true,
+			DiscoveryTimeout:  500 * time.Millisecond,
+			NetworkMode:       gossip.LAN,
+		},
+		Callbacks: callbacks1,
+	}
+
+	disc1 := &mockDiscoverer{}
+	node1, err := New(cfg1, disc1)
+	if err != nil {
+		t.Fatalf("failed to create node1: %v", err)
+	}
+
+	appLeaveReceived := make(chan gossip.NodeInfo, 1)
+	node1.SetAppOnLeave(func(info gossip.NodeInfo) {
+		select {
+		case appLeaveReceived <- info:
+		default:
+		}
+	})
+
+	ctx := context.Background()
+	if err := node1.Start(ctx); err != nil {
+		t.Fatalf("failed to start node1: %v", err)
+	}
+	defer node1.Stop()
+
+	select {
+	case <-callbacks1.bootstrapCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for node1 bootstrap")
+	}
+
+	callbacks2 := newTestCallbacks()
+	cfg2 := &Config{
+		Bootstrap: &bootstrap.Config{
+			NodeID:            "node2",
+			GossipAddr:        fmt.Sprintf("127.0.0.1:%d", gossipPort2),
+			RaftAdvertiseAddr: raftAddr2,
+			CanBootstrap:      false,
+			DiscoveryTimeout:  500 * time.Millisecond,
+			NetworkMode:       gossip.LAN,
+		},
+		Callbacks: callbacks2,
+	}
+
+	disc2 := &mockDiscoverer{peers: []string{fmt.Sprintf("127.0.0.1:%d", gossipPort1)}}
+	node2, err := New(cfg2, disc2)
+	if err != nil {
+		t.Fatalf("failed to create node2: %v", err)
+	}
+
+	if err := node2.Start(ctx); err != nil {
+		t.Fatalf("failed to start node2: %v", err)
+	}
+
+	select {
+	case <-callbacks2.joinCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for node2 join")
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	node2.Stop()
+
+	select {
+	case info := <-appLeaveReceived:
+		if info.ID != "node2" {
+			t.Errorf("expected node ID 'node2', got '%s'", info.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for app OnLeave callback")
+	}
+}

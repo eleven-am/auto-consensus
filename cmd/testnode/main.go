@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -113,9 +114,47 @@ func main() {
 			"raft_state":      node.RaftState(),
 			"raft_leader_id":  leaderID,
 			"raft_leader":     leaderAddr,
+			"is_leader":       node.IsLeader(),
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
+	})
+
+	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+		raftStats := node.Raft().Stats()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(raftStats)
+	})
+
+	mux.HandleFunc("/apply", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		future, err := node.Apply(body, 5*time.Second)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if err := future.Error(); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":   true,
+			"is_leader": node.IsLeader(),
+			"node_id":   nodeID,
+		})
 	})
 
 	server := &http.Server{Addr: httpAddr, Handler: mux}
