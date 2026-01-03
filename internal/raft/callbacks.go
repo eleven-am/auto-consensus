@@ -90,6 +90,10 @@ func (n *Node) OnJoin(self consensus.NodeInfo, peers []consensus.NodeInfo) error
 }
 
 func (n *Node) OnPeerJoin(peer consensus.NodeInfo) {
+	go n.handlePeerJoin(peer)
+}
+
+func (n *Node) handlePeerJoin(peer consensus.NodeInfo) {
 	n.mu.RLock()
 	raftNode := n.raft
 	selfID := n.selfInfo.ID
@@ -118,6 +122,10 @@ func (n *Node) OnPeerJoin(peer consensus.NodeInfo) {
 }
 
 func (n *Node) OnPeerLeave(peer consensus.NodeInfo) {
+	go n.handlePeerLeave(peer)
+}
+
+func (n *Node) handlePeerLeave(peer consensus.NodeInfo) {
 	n.mu.RLock()
 	raftNode := n.raft
 	selfID := n.selfInfo.ID

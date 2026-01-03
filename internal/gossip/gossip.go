@@ -147,20 +147,16 @@ func (g *Gossip) SetBootstrapped(bootstrapped bool) {
 }
 
 func (g *Gossip) buildMemberlistConfig() *memberlist.Config {
-	var mlConfig *memberlist.Config
-
-	switch g.config.Mode {
-	case LAN:
-		mlConfig = memberlist.DefaultLANConfig()
-	case WAN:
-		mlConfig = memberlist.DefaultWANConfig()
-	default:
-		mlConfig = memberlist.DefaultWANConfig()
-	}
+	mlConfig := memberlist.DefaultLANConfig()
 
 	mlConfig.Name = g.config.NodeID
 	mlConfig.Delegate = g.delegate
 	mlConfig.Events = g.events
+	mlConfig.BindPort = 7946
+	mlConfig.AdvertisePort = 7946
+	mlConfig.TCPTimeout = 30 * time.Second
+	mlConfig.SuspicionMult = 4
+	mlConfig.RetransmitMult = 4
 
 	if g.config.Logger != nil {
 		mlConfig.Logger = nil
@@ -185,10 +181,11 @@ func (g *Gossip) buildMemberlistConfig() *memberlist.Config {
 				fmt.Sscanf(advPortStr, "%d", &advPort)
 				mlConfig.AdvertisePort = advPort
 				if g.config.Logger != nil {
-					g.config.Logger.Info("memberlist advertise address configured",
+					g.config.Logger.Info("memberlist config",
 						"advertiseAddr", resolvedIP,
 						"advertisePort", advPort,
-						"originalHost", advHost,
+						"bindAddr", mlConfig.BindAddr,
+						"bindPort", mlConfig.BindPort,
 					)
 				}
 			}
@@ -196,10 +193,17 @@ func (g *Gossip) buildMemberlistConfig() *memberlist.Config {
 	}
 
 	if len(g.config.SecretKey) > 0 {
-		encKey := deriveEncryptionKey(g.config.SecretKey)
-		keyring, err := memberlist.NewKeyring(nil, encKey)
-		if err == nil {
+		key := deriveEncryptionKey(g.config.SecretKey)
+		keyring, err := memberlist.NewKeyring(nil, key)
+		if err != nil {
+			if g.config.Logger != nil {
+				g.config.Logger.Error("failed to create gossip keyring", "error", err)
+			}
+		} else {
 			mlConfig.Keyring = keyring
+			if g.config.Logger != nil {
+				g.config.Logger.Info("gossip encryption enabled", "keyLength", len(key))
+			}
 		}
 	}
 
