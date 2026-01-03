@@ -44,3 +44,11 @@ func NewDNSDiscovery(cfg DNSConfig) Discoverer {
 func NewStaticDiscovery(peers []string) Discoverer {
 	return discovery.NewStatic(peers)
 }
+
+func NewCascade(discoverers ...Discoverer) Discoverer {
+	internal := make([]discovery.Discoverer, len(discoverers))
+	for i, d := range discoverers {
+		internal[i] = d
+	}
+	return discovery.NewCascade(internal...)
+}
