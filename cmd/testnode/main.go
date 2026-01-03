@@ -21,21 +21,14 @@ func main() {
 
 	nodeID := getEnv("NODE_ID", "node1")
 	gossipPort := getEnvInt("GOSSIP_PORT", 7946)
-	raftPort := getEnvInt("RAFT_PORT", 0)
 	httpAddr := getEnv("HTTP_ADDR", ":8080")
 	dataDir := getEnv("DATA_DIR", fmt.Sprintf("/tmp/raft-%s", nodeID))
 	secretKey := getEnv("SECRET_KEY", "test-cluster-key")
 	advertiseAddr := getEnv("ADVERTISE_ADDR", "")
 
-	raftPortDisplay := fmt.Sprintf("%d", raftPort)
-	if raftPort == 0 {
-		raftPortDisplay = "dynamic"
-	}
-
 	logger.Info("starting test node",
 		"node_id", nodeID,
 		"gossip_port", gossipPort,
-		"raft_port", raftPortDisplay,
 		"http", httpAddr,
 		"advertise", advertiseAddr,
 	)
@@ -78,7 +71,6 @@ func main() {
 	node, err := autoconsensus.New(autoconsensus.Config{
 		NodeID:         nodeID,
 		GossipPort:     gossipPort,
-		RaftPort:       raftPort,
 		SecretKey:      []byte(secretKey),
 		StorageFactory: NewBoltStorageFactory(dataDir),
 		FSM:            &noopFSM{},

@@ -11,8 +11,6 @@ import (
 type Config struct {
 	NodeID         string
 	GossipPort     int
-	RaftPort       int
-	GRPCPort       int
 	SecretKey      []byte
 	StorageFactory StorageFactory
 	FSM            raft.FSM
@@ -48,7 +46,7 @@ func (c *Config) gossipAddr() string {
 }
 
 func (c *Config) raftAddr() string {
-	return fmt.Sprintf("0.0.0.0:%d", c.RaftPort)
+	return "0.0.0.0:0"
 }
 
 func (c *Config) gossipAdvertiseAddr() string {
@@ -60,13 +58,13 @@ func (c *Config) gossipAdvertiseAddr() string {
 
 func (c *Config) raftAdvertiseAddr() string {
 	if c.AdvertiseAddr != "" {
-		return fmt.Sprintf("%s:%d", c.AdvertiseAddr, c.RaftPort)
+		return c.AdvertiseAddr + ":0"
 	}
-	return c.raftAddr()
+	return "0.0.0.0:0"
 }
 
 func (c *Config) grpcAddr() string {
-	return fmt.Sprintf("0.0.0.0:%d", c.GRPCPort)
+	return "0.0.0.0:0"
 }
 
 func (c *Config) grpcAdvertiseAddr(actualAddr string) string {
