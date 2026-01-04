@@ -5,8 +5,20 @@ import (
 	"time"
 
 	"github.com/eleven-am/auto-consensus/internal/consensus"
+	"github.com/eleven-am/auto-consensus/internal/gossip"
 	"github.com/hashicorp/raft"
 )
+
+type raftInterface interface {
+	State() raft.RaftState
+	GetConfiguration() raft.ConfigurationFuture
+	AddVoter(id raft.ServerID, address raft.ServerAddress, prevIndex uint64, timeout time.Duration) raft.IndexFuture
+	RemoveServer(id raft.ServerID, prevIndex uint64, timeout time.Duration) raft.IndexFuture
+}
+
+type gossipMembersProvider interface {
+	Members() []gossip.NodeInfo
+}
 
 func (n *Node) OnBootstrap(self consensus.NodeInfo) error {
 	n.mu.Lock()
@@ -101,17 +113,54 @@ func (n *Node) handlePeerJoin(peer consensus.NodeInfo) {
 	selfID := n.selfInfo.ID
 	n.mu.RUnlock()
 
-	if raftNode == nil || raftNode.State() != raft.Leader || peer.ID == selfID {
+	if raftNode == nil || peer.ID == selfID {
 		return
 	}
 
-	if peer.RaftAddr == "" || !n.isPeerBootstrapped(peer.ID) {
+	var g gossipMembersProvider
+	if n.gossipFn != nil {
+		g = n.gossipFn()
+	}
+
+	n.handlePeerJoinWithRaft(raftNode, peer, g)
+}
+
+func (n *Node) handlePeerJoinWithRaft(ra raftInterface, peer consensus.NodeInfo, g gossipMembersProvider) {
+	if ra.State() != raft.Leader {
 		return
 	}
 
-	n.logger.Info("adding peer", "peer", peer.ID)
+	if peer.RaftAddr == "" {
+		return
+	}
 
-	f := raftNode.AddVoter(
+	if !n.isPeerBootstrappedWithGossip(peer.ID, g) {
+		return
+	}
+
+	configFuture := ra.GetConfiguration()
+	if err := configFuture.Error(); err == nil {
+		for _, server := range configFuture.Configuration().Servers {
+			if string(server.ID) == peer.ID {
+				if string(server.Address) == peer.RaftAddr {
+					return
+				}
+				n.logger.Info("peer address changed, removing stale entry",
+					"peer", peer.ID,
+					"old_addr", string(server.Address),
+					"new_addr", peer.RaftAddr)
+				rf := ra.RemoveServer(server.ID, 0, defaultOperationTimeout)
+				if err := rf.Error(); err != nil {
+					n.logger.Warn("failed to remove stale peer", "peer", peer.ID, "error", err)
+				}
+				break
+			}
+		}
+	}
+
+	n.logger.Info("adding peer", "peer", peer.ID, "addr", peer.RaftAddr)
+
+	f := ra.AddVoter(
 		raft.ServerID(peer.ID),
 		raft.ServerAddress(peer.RaftAddr),
 		0,
@@ -121,6 +170,20 @@ func (n *Node) handlePeerJoin(peer consensus.NodeInfo) {
 	if err := f.Error(); err != nil {
 		n.logger.Warn("failed to add peer", "peer", peer.ID, "error", err)
 	}
+}
+
+func (n *Node) isPeerBootstrappedWithGossip(peerID string, g gossipMembersProvider) bool {
+	if g == nil {
+		return true
+	}
+
+	for _, member := range g.Members() {
+		if member.ID == peerID {
+			return member.Bootstrapped
+		}
+	}
+
+	return false
 }
 
 func (n *Node) OnPeerLeave(peer consensus.NodeInfo) {

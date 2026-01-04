@@ -27,7 +27,7 @@ func (n *Node) reconcileMembers() {
 	selfID := n.selfInfo.ID
 	n.mu.RUnlock()
 
-	if ra == nil || ra.State() != raft.Leader {
+	if ra == nil {
 		return
 	}
 
@@ -40,6 +40,14 @@ func (n *Node) reconcileMembers() {
 		return
 	}
 
+	n.reconcileMembersWithRaft(ra, selfID, g)
+}
+
+func (n *Node) reconcileMembersWithRaft(ra raftInterface, selfID string, g gossipMembersProvider) {
+	if ra.State() != raft.Leader {
+		return
+	}
+
 	members := g.Members()
 
 	configFuture := ra.GetConfiguration()
@@ -48,9 +56,9 @@ func (n *Node) reconcileMembers() {
 		return
 	}
 
-	raftMembers := make(map[string]bool)
+	raftServers := make(map[string]raft.ServerAddress)
 	for _, server := range configFuture.Configuration().Servers {
-		raftMembers[string(server.ID)] = true
+		raftServers[string(server.ID)] = server.Address
 	}
 
 	gossipMembers := make(map[string]bool)
@@ -58,8 +66,25 @@ func (n *Node) reconcileMembers() {
 	for _, member := range members {
 		gossipMembers[member.ID] = true
 
-		if member.ID == selfID || !member.Bootstrapped || member.RaftAddr == "" || raftMembers[member.ID] {
+		if member.ID == selfID || !member.Bootstrapped || member.RaftAddr == "" {
 			continue
+		}
+
+		existingAddr, exists := raftServers[member.ID]
+		if exists && string(existingAddr) == member.RaftAddr {
+			continue
+		}
+
+		if exists && string(existingAddr) != member.RaftAddr {
+			n.logger.Info("reconciliation: peer address changed, removing stale entry",
+				"peer", member.ID,
+				"old_addr", string(existingAddr),
+				"new_addr", member.RaftAddr)
+			rf := ra.RemoveServer(raft.ServerID(member.ID), 0, defaultOperationTimeout)
+			if err := rf.Error(); err != nil {
+				n.logger.Warn("reconciliation: failed to remove stale peer", "peer", member.ID, "error", err)
+				continue
+			}
 		}
 
 		n.logger.Info("reconciliation: adding peer", "peer", member.ID, "addr", member.RaftAddr)
